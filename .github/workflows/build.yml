@@ -1,4 +1,4 @@
-name: 编译GecoosAC-24.10
+name: 编译GecoosAC-24.10-智能版
 
 on:
   workflow_dispatch:
@@ -8,47 +8,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: 准备环境
+    - name: 1. 准备环境 (Ubuntu)
       run: |
         sudo apt update
-        # 24.10 需要 zstd 解压工具
         sudo apt install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 zstd
 
-    - name: 下载SDK (24.10.0 Filogic)
+    - name: 2. 下载 SDK (24.10.0)
       run: |
-        # 1. 下载 ImmortalWrt 24.10.0 版本的 SDK (注意：现在是 .tar.zst 格式，且 GCC 版本升级到了 13.3.0)
+        # 下载 ImmortalWrt 24.10.0 SDK
         wget -q https://downloads.immortalwrt.org/releases/24.10.0/targets/mediatek/filogic/immortalwrt-sdk-24.10.0-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
         
-        # 2. 解压 SDK (使用 zstd)
+        # 解压
         tar -I zstd -xf immortalwrt-sdk-*.tar.zst
-        
-        # 3. 重命名文件夹方便后续操作
         rm -f immortalwrt-sdk-*.tar.zst
         mv immortalwrt-sdk-* sdk
 
-    - name: 下载插件源码
+    - name: 3. 下载插件并整理目录 (关键修复步骤)
       run: |
         cd sdk
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        # 克隆源码
-        git clone https://github.com/lwb1978/openwrt-gecoosac package/openwrt-gecoosac
+        
+        # 先克隆到一个临时文件夹，防止路径套娃
+        git clone https://github.com/lwb1978/openwrt-gecoosac.git temp_src
+        
+        # 搜索真正的插件目录 (含有 Makefile 的那个) 并移动到 package 根目录
+        # 这一步能解决 99% 的 "No rule to make target" 错误
+        find temp_src -name "luci-app-gecoosac" -type d -exec mv {} package/ \; || mv temp_src package/luci-app-gecoosac
+        
+        # 清理临时文件夹
+        rm -rf temp_src
 
-    - name: 自动编译
+    - name: 4. 自动编译
       run: |
         cd sdk
         make defconfig
         
-        # 强制配置
+        # 强制开启编译
         echo "CONFIG_PACKAGE_luci-app-gecoosac=m" >> .config
-        
-        # 24.10 可能需要启用兼容层 (可选，为了稳妥加上)
         echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+        
+        # 这里的路径已经通过上一步修正了，肯定是 package/luci-app-gecoosac
+        make package/luci-app-gecoosac/compile V=s
 
-        # 开始编译
-        make package/openwrt-gecoosac/compile V=s
-
-    - name: 上传成品
+    - name: 5. 上传成品
       uses: actions/upload-artifact@v4
       with:
         name: GecoosAC-IPK-24.10
