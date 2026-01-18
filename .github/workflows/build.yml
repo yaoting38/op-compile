@@ -1,4 +1,4 @@
-name: 编译GecoosAC
+name: 编译GecoosAC-24.10
 
 on:
   workflow_dispatch:
@@ -6,32 +6,50 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: 准备环境
-        run: sudo apt update && sudo apt install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3
+    - name: 准备环境
+      run: |
+        sudo apt update
+        # 24.10 需要 zstd 解压工具
+        sudo apt install -y build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 zstd
 
-      - name: 下载SDK
-        run: |
-          wget https://downloads.immortalwrt.org/releases/23.05.1/targets/mediatek/filogic/immortalwrt-sdk-23.05.1-mediatek-filogic_gcc-12.3.0_musl.Linux-x86_64.tar.xz
-          tar -xJf immortalwrt-sdk-*.tar.xz
-          mv immortalwrt-sdk-* sdk
+    - name: 下载SDK (24.10.0 Filogic)
+      run: |
+        # 1. 下载 ImmortalWrt 24.10.0 版本的 SDK (注意：现在是 .tar.zst 格式，且 GCC 版本升级到了 13.3.0)
+        wget -q https://downloads.immortalwrt.org/releases/24.10.0/targets/mediatek/filogic/immortalwrt-sdk-24.10.0-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+        
+        # 2. 解压 SDK (使用 zstd)
+        tar -I zstd -xf immortalwrt-sdk-*.tar.zst
+        
+        # 3. 重命名文件夹方便后续操作
+        rm -f immortalwrt-sdk-*.tar.zst
+        mv immortalwrt-sdk-* sdk
 
-      - name: 下载插件源码
-        run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          git clone https://github.com/lwb1978/openwrt-gecoosac package/openwrt-gecoosac
+    - name: 下载插件源码
+      run: |
+        cd sdk
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        # 克隆源码
+        git clone https://github.com/lwb1978/openwrt-gecoosac package/openwrt-gecoosac
 
-      - name: 编译
-        run: |
-          cd sdk
-          make defconfig
-          echo "CONFIG_PACKAGE_luci-app-gecoosac=m" >> .config
-          make package/openwrt-gecoosac/compile V=s
+    - name: 自动编译
+      run: |
+        cd sdk
+        make defconfig
+        
+        # 强制配置
+        echo "CONFIG_PACKAGE_luci-app-gecoosac=m" >> .config
+        
+        # 24.10 可能需要启用兼容层 (可选，为了稳妥加上)
+        echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 
-      - name: 上传文件
-        uses: actions/upload-artifact@v4
-        with:
-          name: GecoosAC-plugin
-          path: sdk/bin/packages/*/base/luci-app-gecoosac*.ipk
+        # 开始编译
+        make package/openwrt-gecoosac/compile V=s
+
+    - name: 上传成品
+      uses: actions/upload-artifact@v4
+      with:
+        name: GecoosAC-IPK-24.10
+        path: sdk/bin/packages/*/base/luci-app-gecoosac*.ipk
